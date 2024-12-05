@@ -1,0 +1,295 @@
+<bbs_documentation>
+    <main.c>
+        <description>
+            Main entry point of program.
+        </description>
+        <main>
+            Initialize and manage program lifecycle. Calls start_logger() and stop_logger()
+            functions to control the logging session. Will need special commands for starting and
+            stopping the program. All available commands will be displayed to the user, followed by
+            "press XXXXX to start".
+        </main>
+        <start_logger>
+            Capture the current time the program was started. Signal the Keystroke Capture Module to
+            start recording events. Initialize the display_text module to load and display the
+            paragraph text and subsequently display what the users types so that they can match it
+            with the provided text. Ensures all other modules are properly initialized: Timing, Data
+            Storage, etc...
+        </start_logger>
+        <stop_logger>
+            Capture the current time the program was ended, then calculate the total duration. This
+            may need some playing with- but it might be best to actually calculate the duration by
+            simply calculating the timing distance from the first key pressed to the last key
+            released (excluding command strokes). This will also signal the Keystroke Capture Module
+            to stop recording. Call the Data Storage Module to save and export captured data. Clean
+            up resources and ensures proper termination.
+        </stop_logger>
+        <notes>
+            Include verbose logging mode (--verbose) to output details about each phase of the
+            program's execution for easier debugging
+
+            Provide a --help argument to display a summary of available commands and their usage.
+        </notes>
+    </main.c>
+    <capture_keystroke.c>
+        <description>
+            Hook onto macOS keyboard events to capture key presses and releases. Sends captured data
+            to the Data Storage Module (key code, event type, timestamp, etc...). Character keys
+            will be recorded in ASCII.
+        </description>
+        <initialize_capture>
+            Sets up the Quartz Event Taps API for capturing keyboard events. Ensures that all
+            necessary permissions are in place. Prepares the event tap to monitor:
+
+            key press : kCGEventKeyDown
+            key release : kCGEventKeyUp
+        </initialize_capture>
+        <thought>
+            Depending on how the QET API works, we may have two options to capturing events:
+
+            The first option as laid out below includes two functions:
+
+            One to start the capture and one to stop the capture. This method works by creating a
+            (press) event on start_capture() with the relevant information about it, then a
+            (release) event on stop_capture() with its relevant information. This method would
+            include keeping track of when a key has been pressed, and not yet released. In the
+            meantime keeping track of other additional press events as well. The implication is that
+            a user could continue holding down 'a' while simultaneously pressing 'b' and 'c'. Thus
+            requiring a data structure to contain a binary representation of either 'pressing' or
+            'released'. Having said that, this may be overkill for our intent and purpose. Generally
+            the 'shift' key will be the most common case of a user holding down a key while
+            simultaneously pressing other keys. But I feel this small detail is relevant to capture
+            due to the variability of how different people would go about using the 'shift' key. One
+            person may hold down 'shift' as they type a word in full caps- but others may press and
+            release 'shift' as they type each letter.
+
+            A second option may include only one function. Where the function is called when a user
+            presses a key, and its first action is recording the time it was called to indicate the
+            time the key was pressed, then the function only returns once the key as been released.
+            But just before returning, it records the time stamp to indicate when it was released.
+            This could provide savings in storage and time by reusing all the keys information,
+            excluding time stamps. Additionally, this may provide a more accurate time stamp. The
+            benefits may not be noticeable- but this would reduce code complexity if it worked.
+
+            I do not want to spend much time pre-optimizing. However, there is something to be said
+            about providing the most accurate timing possible. The more precise we get with
+            recording time stamp data, the more likely the detection model can accurately predict.
+        </thought>
+        <start_capture>
+            Activates the event tap to begin monitoring keyboard input and starts an asynchronous
+            loop to process key events as they occur.
+        </start_capture>
+        <stop_capture>
+            Deactivates and releases the event tap and ensures that no residual hooks remain active.
+        </stop_capture>
+        <event_callback>
+            Callback function triggered by the Quartz Event Taps API for every key event. Extracts
+            key code and event type. Gets timestamp using the Timing Module. Passes the data to the
+            Data Storage Module.
+        </event_callback>
+        <notes>
+            Capturing both events individually may be preferable for granularity and precise
+            analysis.
+
+            Add a function to validate the Quartz Event Taps APIs setup to ensure proper permissions
+            and environment readiness (ensuring accessibility permissions are granted on macOS).
+
+            Add recording for key modifiers (shift, ctrl, Cmd) as part of each event to capture user
+            behavior more comprehensively.
+        </notes>
+    </capture_keystroke.c>
+    <display_text.c>
+        <description>
+            Handles the loading and display of the text to be typed. Manages a modifiable buffer for
+            the user input.
+        </description>
+        <load_text>
+            Reads the initial paragraph from the provided text file then loads that text into a
+            buffer. We may have a count-down function that is triggered when the user runs the start
+            command. The function will take the text out of the buffer to be displayed, print it to
+            the screen, start a quick count down for the user, then call start_logger() once the
+            count down is complete. In the meantime as the count-down is going, we can remove the
+            text from the buffer as it is no longer needed in memory.
+
+            It may be that we combine the functions load_text(), start_countdown(), and
+            start_logger() into one function depending on the complexity. It may increase
+            readability at little cost to separation of concerns. TBD.
+        </load_text>
+        <update_display>
+            This will first check that the current argument matches an acceptable displayable key
+            code. Anything that passes the check, excluding 'backspace', should be added to the user
+            input buffer stack and displayed back to the user. When a 'backspace' is encountered we
+            pop the last item added to the stack, and adjust the users display accordingly.
+        </update_display>
+        <render_display>
+            This is an option function should we want to separate the updating and rendering of the
+            stack into two separate concerns. Refreshes the terminal with the current state of the
+            display buffer, ensuring the displayed text matches the users input in the stack.
+        </render_display>
+        <cleanup_display>
+            This should free all resources related to the display buffer. We currently have
+            cleanup_storage() handling cleaning up data structures held in memory. This cleanup
+            function is concerned with just clearing the display buffer. Perhaps it makes more sense
+            to have all clean up functionality consolidated into one function. We could also explore
+            creating a single data structure for the purpose of handling any calls for allocating
+            memory. Then this main data structure and its accompanying logic will handle management
+            of all resources.
+        </cleanup_display>
+        <notes>
+            Add a function for handling special keys beyond backspace (arrow keys, enter key).
+
+            We could implement a mechanism to highlight mismatches between a user's input and the
+            target text in real-time for usability. To add on- we could also not allow any
+            mismatched text to be displayed in the output buffer. In doing so- the session only ends
+            once the buffer matches the provided text exactly. This could provide several benefits:
+            - all items added to the visual buffer must match the current char to be typed next, per
+            the provided text. This could reduce the need to filter the buffer for special keys.
+            - would provide more context for user behavior since any miss-types would not allow the
+            text to move forward, and therefore could result in more keys being typed overall.
+            - could easily determine fixed stack size for display buffer.
+
+            If we decide to combine load_text, start_countdown, and start_logger, we must ensure
+            that modularity does not suffer, and it remains straight forward/easy to debug.
+        </notes>
+    </display_text.c>
+    <timing.c>
+        <description>
+            Provides high-precision timing for keystroke events
+        </description>
+        <initialize_timing>
+            Initializes timing utilities using macOS specific APIs and sets the base time for
+            calculating timestamps relative to program start.
+        </initialize_timing>
+        <get_timestamp>
+            Returns the current timestamp in nanoseconds and uses mach_absolute_time for
+            high-resolution timing.
+        </get_timestamp>
+        <cleanup_timing>
+            Cleans up any resources related to timing if needed
+        </cleanup_timing>
+        <notes>
+            Depending on storage and compatibility, we may consider returning timestamps in
+            microseconds (vs nanoseconds) for easier compatibility and analysis. We shall stick with
+            nanoseconds unless if it is determined this is a bottle neck. Precision will be
+            essential in ensuring accurate results.
+        </notes>
+    </timing.c>
+    <store_data.c>
+        <description>
+            Manages in-memory storage of captured keystroke data. Formats and exports data to a CSV
+            file.
+        </description>
+        <initialize_storage>
+            Allocates memory for storing keystroke events and prepares any necessary data
+            structures. We will have two main types of memory for temp storing:
+
+            --------------------
+            Keystroke Events
+            --------------------
+            This will be a fixed memory size for storing all key strokes. Once stop_logger() is
+            called we will then store the data into a persistent storage method. Each key stroke
+            recorded is defined by either a 'key-press' or 'key-release'. Each event will record
+            onto a single line to be stored in CSV format:
+
+            key code, event type, timestamp
+            65, p, 1623456789012
+
+            We will calculate the fixed-memory size to be the average byte size of a single line
+            multiplied by the amount of chars provided in the given paragraph plus an additional 10%
+            of that total size (may change).
+
+            A key thing to keep in mind here is that speed matters more than format. So collecting
+            the data and storing it in memory as fast as possible is all that matters. Then once we
+            are finished logging, we can then parse the data to format it correctly.
+
+            However, this might be overkill and that kind of optimization may not be necessary.
+
+            This may use a stack data structure, where each item in the stack is a tuple of the 3
+            data fields being collected. Biggest priority here is fast insertions.
+
+            We could also look at a way of just combining the entire 3 fields into one field. the
+            divider would be the event type which is (at least thus far) either a 'p' or 'r' (press
+            or release). Then we parse this after the program ends. Just depends on how much we want
+            to optimize, which is not important right now.
+
+            --------------------
+            User Input Buffer
+            --------------------
+            This will be a buffer and output display separate from logging keystroke events. In
+            this buffer we will collect what the user is typing and display it back to them. This
+            way they can understand where they are in completing the text.
+
+            However, this buffer does not simply collect everything the user inputs and just append
+            it to the buffer. It will have to take into consideration back-spaces and other special
+            characters that should not be displayed.
+
+            One idea may be to keep all characters typed in a stack. As a character is typed we
+            display it to the user, then add it to the top of the stack. We can have a filter before
+            going to the stack or display that ensures the current keystroke meets the
+            criteria for an acceptable char. If it does not, then we simply ignore it (this will
+            still get key logged, but ignored for the purpose of user input buffer). This also
+            includes the space bar. In the case that a user uses the backspace to fix a typo (or any
+            other reason) we remove the last item on the stack and buffer per each instance.
+        </initialize_storage>
+        <store_keystroke_event>
+            Logs each captured keystroke event into our pre-initialized in-memory data structure.
+            Using a stack we can ensure events are stored sequentially.
+        </store_keystroke_event>
+        <export_to_csv>
+            This function will be called once stop_logger() is called. It will be in charge of
+            collecting all the items from the 'keystroke event' stack and exporting it to the
+            current sessions CSV file. This may include parsing all the data so that it fits the
+            proper CSV structure. A format check and sequential ordering check will apply as well.
+        </export_to_csv>
+        <create_csv_file>
+            We will have a folder where all CSV files shall live. Each CSV file represents a single
+            typing session. This function triggers when the program starts, but before
+            start_keylogger() is run. part of the initialization set up. The folder name will be
+            included in the config file and initialized with main(). Each session will yield a new
+            CSV file name to go with each new file. For now, we may do:
+
+            key_log_data_MM_DD_YYY_HH_MM.csv
+        </create_csv_file>
+        <clean_up_storage>
+            Frees all allocated memory including both the 'keystroke event' stack, and 'user input
+            buffer' / stack. This should be called inside of stop_keylogger() as a last
+            called function.
+        </clean_up_storage>
+        <notes>
+            Add a function to query the current size of the keystroke event stack to monitor memory
+            usage dynamically.
+
+            Ensure that the fixed-memory size calculation accounts for variability in input length
+            due to user edits.
+
+            Add configuration options for defining the CSV folder path and file naming conventions
+            via a separate configuration file.
+        </notes>
+    </store_data.c>
+    <commands.c>
+        <description>
+            This module provides a list of commands available for the user to run.
+        </description>
+    </commands.c>
+    <notes>
+        Add module for error handling. This will include handling errors gracefully and logging
+        clear messages.
+
+        Create a global config.h file.
+
+        Depending on how intense the program becomes, we may consider introducing multithreading.
+
+        Add hooks for testing individual modules.
+
+        Create a commands module
+
+        Configuration file contents:
+        - paragraph input file
+        - naming convention for output CSV file
+        - name of folder where CSV files are contained
+        - name of program
+        - version #
+        - created by
+        - countdown seconds
+    </notes>
+</bbs_documentation>

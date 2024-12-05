@@ -1,6 +1,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define START_SIZE 1024
+
+struct Stack {
+    int top;
+    int items[START_SIZE];
+};
+
+void initialize_stack(struct Stack *stack) {
+    stack->top = -1;
+}
+
+
+void start() {
+    // temp file name
+    const char *filename = "test.txt";
+
+    // grab the text in the test.txt file & store returned data in 'text'
+    char *text = load_text(filename);
+    if (text) {
+        printf("File content:\n%s\n", text);
+        free(text);
+    }
+
+    // create keystrokes stack
+    struct Stack keystrokes;
+    initialize_stack(&keystrokes);
+
+    // create buffer display stack
+    struct Stack buffer_display;
+    initialize_stack(&buffer_display);
+}
+
 char *load_text(const char *filename) {
     // read text from input file and store it in an array
     // open file in read mode
@@ -43,15 +75,10 @@ char *load_text(const char *filename) {
 }
 
 
-void display_provided_paragraph() {
+void exit() {
+    // gracefully end program and begin de-initialization sequence
 }
 
-void update_display(char key) {
-}
-
-
-void render_display() {
-}
-
-void cleanup_display() {
+void help() {
+    // provide list of commands
 }
