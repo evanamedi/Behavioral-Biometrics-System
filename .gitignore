@@ -1,6 +1,7 @@
 ### C template
 # Prerequisites
 *.d
+.idea
 .idea/BBS.iml
 .idea/editor.xml
 .idea/material_theme_project_new.xml
